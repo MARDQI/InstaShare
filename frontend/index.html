@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InstaShare - Compartir Archivos</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Roboto', sans-serif; background: #f5f5f5; }
+        .container { max-width: 800px; margin: 0 auto; padding: 20px; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .card { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input[type="text"], input[type="password"], input[type="file"] {
+            width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px;
+        }
+        button {
+            background: #007bff; color: white; padding: 12px 20px;
+            border: none; border-radius: 5px; cursor: pointer; width: 100%;
+        }
+        button:hover { background: #0056b3; }
+        .hidden { display: none; }
+        .success { color: green; margin: 10px 0; }
+        .error { color: red; margin: 10px 0; }
+        .file-list { margin-top: 20px; }
+        .file-item {
+            background: #f8f9fa; padding: 15px; margin: 10px 0;
+            border-radius: 5px; border-left: 4px solid #007bff;
+        }
+        .status { font-weight: bold; }
+        .status.processed { color: green; }
+        .status.uploading { color: orange; }
+        .status.error { color: red; }
+        .download-btn {
+            background: #28a745; color: white; padding: 8px 15px;
+            text-decoration: none; border-radius: 3px; display: inline-block; margin-top: 10px;
+        }
+        @media (max-width: 600px) {
+            .container { padding: 10px; }
+            .card { padding: 20px; }
+            button { padding: 10px; }
+        }
+    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📁 InstaShare</h1>
+            <p>Sistema de compartición de archivos con compresión automática</p>
+        </div>
+
+        <!-- Registro/Login -->
+        <div class="card" id="authCard">
+            <h2 id="authTitle">Iniciar Sesión</h2>
+            <form id="authForm">
+                <div class="form-group">
+                    <label>Usuario:</label>
+                    <input type="text" id="username" required>
+                </div>
+                <div class="form-group">
+                    <label>Contraseña:</label>
+                    <input type="password" id="password" required>
+                </div>
+                <button type="submit" id="authBtn">Iniciar Sesión</button>
+            </form>
+            <p style="text-align: center; margin-top: 15px;">
+                <a href="#" id="toggleAuth">¿No tienes cuenta? Regístrate</a>
+            </p>
+            <div id="authMessage"></div>
+        </div>
+
+        <!-- Panel de usuario -->
+        <div class="card hidden" id="userPanel">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 id="welcomeMessage">Bienvenido</h2>
+                <button onclick="logout()" style="width: auto; background: #dc3545;">Cerrar Sesión</button>
+            </div>
+
+            <!-- Subir archivo -->
+            <div class="form-group">
+                <label>Subir Archivo:</label>
+                <input type="file" id="fileInput">
+                <button onclick="uploadFile()" style="margin-top: 10px;">Subir y Procesar</button>
+            </div>
+            <div id="uploadMessage"></div>
+
+            <!-- Lista de archivos -->
+            <div id="filesList" class="file-list"></div>
+        </div>
+    </div>
+
+    <script>
+        let currentUser = null;
+        let isLogin = true;
+
+        // Alternar entre login y registro
+        document.getElementById('toggleAuth').onclick = function(e) {
+            e.preventDefault();
+            isLogin = !isLogin;
+            if (isLogin) {
+                document.getElementById('authTitle').textContent = 'Iniciar Sesión';
+                document.getElementById('authBtn').textContent = 'Iniciar Sesión';
+                document.getElementById('toggleAuth').textContent = '¿No tienes cuenta? Regístrate';
+            } else {
+                document.getElementById('authTitle').textContent = 'Registrarse';
+                document.getElementById('authBtn').textContent = 'Registrarse';
+                document.getElementById('toggleAuth').textContent = '¿Ya tienes cuenta? Inicia sesión';
+            }
+        };
+
+        // Manejar formulario de auth
+        document.getElementById('authForm').onsubmit = async function(e) {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+
+            const endpoint = isLogin ? 'http://localhost:5000/api/login' : 'http://localhost:5000/api/register';
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    currentUser = data.user;
+                    showUserPanel();
+                    loadFiles();
+                } else {
+                    showMessage('authMessage', data.error, 'error');
+                }
+            } catch (error) {
+                showMessage('authMessage', 'Error de conexión', 'error');
+            }
+        };
+
+        function showUserPanel() {
+            document.getElementById('authCard').classList.add('hidden');
+            document.getElementById('userPanel').classList.remove('hidden');
+            document.getElementById('welcomeMessage').textContent = `Bienvenido, ${currentUser.username}`;
+        }
+
+        function logout() {
+            currentUser = null;
+            document.getElementById('authCard').classList.remove('hidden');
+            document.getElementById('userPanel').classList.add('hidden');
+            document.getElementById('authForm').reset();
+            clearMessage('authMessage');
+        }
+
+        async function uploadFile() {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+
+            if (!file) {
+                showMessage('uploadMessage', 'Selecciona un archivo', 'error');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('user_id', currentUser.id);
+
+            try {
+                showMessage('uploadMessage', 'Subiendo archivo...', 'success');
+
+                const response = await fetch('http://localhost:5000/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showMessage('uploadMessage', 'Archivo subido y procesándose...', 'success');
+                    fileInput.value = '';
+                    loadFiles();
+
+                    // Recargar archivos cada 2 segundos para ver el progreso
+                    setTimeout(() => {
+                        loadFiles();
+                    }, 2000);
+                } else {
+                    showMessage('uploadMessage', data.error, 'error');
+                }
+            } catch (error) {
+                showMessage('uploadMessage', 'Error subiendo archivo', 'error');
+            }
+        }
+
+        async function loadFiles() {
+            if (!currentUser) return;
+
+            try {
+                const response = await fetch(`http://localhost:5000/api/files/${currentUser.id}`);
+                const data = await response.json();
+
+                if (response.ok) {
+                    displayFiles(data.files);
+                }
+            } catch (error) {
+                console.error('Error cargando archivos:', error);
+            }
+        }
+
+        function displayFiles(files) {
+            const container = document.getElementById('filesList');
+
+            if (files.length === 0) {
+                container.innerHTML = '<p>No has subido archivos aún.</p>';
+                return;
+            }
+
+            container.innerHTML = files.map(file => `
+                <div class="file-item">
+                    <h4>${file.original_filename}</h4>
+                    <p>Tamaño: ${formatFileSize(file.file_size)}</p>
+                    <p>Subido: ${new Date(file.upload_date).toLocaleString()}</p>
+                    <p>Estado: <span class="status ${file.status}">${getStatusText(file.status)}</span></p>
+                    <p>Descargas: ${file.download_count}</p>
+                    ${file.status === 'processed' ?
+                        `<a href="http://localhost:5000/api/download/${file.id}" class="download-btn">Descargar ZIP</a>` :
+                        ''}
+                </div>
+            `).join('');
+        }
+
+        function getStatusText(status) {
+            const statusMap = {
+                'uploading': 'Subiendo...',
+                'processed': 'Listo para descargar',
+                'error': 'Error en procesamiento'
+            };
+            return statusMap[status] || status;
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function showMessage(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            element.innerHTML = `<div class="${type}">${message}</div>`;
+        }
+
+        function clearMessage(elementId) {
+            document.getElementById(elementId).innerHTML = '';
+        }
+
+        // Recargar archivos cada 5 segundos si hay usuario logueado
+        setInterval(() => {
+            if (currentUser) {
+                loadFiles();
+            }
+        }, 5000);
+    </script>
+</body>
+</html>
