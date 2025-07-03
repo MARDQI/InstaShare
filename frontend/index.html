@@ -224,7 +224,7 @@
                     <p>Estado: <span class="status ${file.status}">${getStatusText(file.status)}</span></p>
                     <p>Descargas: ${file.download_count}</p>
                     ${file.status === 'processed' ?
-                        `<a href="http://localhost:5000/api/download/${file.id}" class="download-btn">Descargar ZIP</a>` :
+                        `<a href="/api/download/${file.id}" class="download-btn">Descargar ZIP</a>` :
                         ''}
                 </div>
             `).join('');
